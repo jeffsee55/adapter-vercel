@@ -2,6 +2,27 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { RouteWithSrc } from '@vercel/routing-utils';
 
+/**
+ * JSON Schema pattern for transform `args` in `@vercel/routing-utils`.
+ * Characters outside this set fail API transform-args validation.
+ */
+const TRANSFORM_ARGS_CHARSET =
+  /^[a-zA-Z0-9_ :;.,"'?!(){}[\]@<>=+*#$&`|~^%/-]+$/;
+
+function sanitizeTransformArgs(value: string): string {
+  if (TRANSFORM_ARGS_CHARSET.test(value)) {
+    return value;
+  }
+
+  let sanitized = '';
+  for (const char of value) {
+    sanitized += TRANSFORM_ARGS_CHARSET.test(char)
+      ? char
+      : encodeURIComponent(char);
+  }
+  return sanitized;
+}
+
 type ActionManifestEntry = {
   filename?: string;
   exportedName?: string;
@@ -14,6 +35,53 @@ type ActionManifest = {
 
 // Firewall `server_action` rules and observability match on the
 // `x-server-action-name` header these routes append per action id.
+export const MAX_CDN_ROUTES = 2048;
+
+export function isServerActionMetaRoute(route: {
+  transforms?: Array<{ target?: { key?: string } }>;
+}): boolean {
+  return Boolean(
+    route.transforms?.some(
+      (transform) => transform.target?.key === 'x-server-action-name'
+    )
+  );
+}
+
+/**
+ * Drop action meta routes first when the table would exceed the API cap.
+ * Other routes are left alone so a pre-existing over-limit app still fails
+ * the same way it did before adapter-vercel#113.
+ */
+export function trimServerActionMetaRoutesToFit<T>(
+  routes: T[],
+  maxRoutes = MAX_CDN_ROUTES
+): T[] {
+  if (routes.length <= maxRoutes) {
+    return routes;
+  }
+
+  const overflow = routes.length - maxRoutes;
+  let dropped = 0;
+  const trimmed = routes.filter((route) => {
+    if (dropped >= overflow) {
+      return true;
+    }
+    if (isServerActionMetaRoute(route)) {
+      dropped += 1;
+      return false;
+    }
+    return true;
+  });
+
+  if (dropped > 0) {
+    console.warn(
+      `Dropped ${dropped} server action meta route(s) to stay under the ${maxRoutes} CDN route limit`
+    );
+  }
+
+  return trimmed;
+}
+
 export async function getServerActionMetaRoutes(
   distDir: string
 ): Promise<RouteWithSrc[]> {
@@ -60,6 +128,13 @@ export async function getServerActionMetaRoutes(
         ? 'anonymous_fn'
         : entry.exportedName;
 
+      // Unsanitized `filename#exportedName` fails the API transform-args
+      // charset when the path has unicode (or `\`).
+      const args = sanitizeTransformArgs(`${entry.filename}#${exportedName}`);
+      if (!args || !TRANSFORM_ARGS_CHARSET.test(args)) {
+        continue;
+      }
+
       routes.push({
         src: '/(.*)',
         has: [
@@ -76,7 +151,7 @@ export async function getServerActionMetaRoutes(
             target: {
               key: 'x-server-action-name',
             },
-            args: `${entry.filename}#${exportedName}`,
+            args,
           },
         ],
       });

@@ -12,15 +12,15 @@ const TRANSFORM_ARGS_CHARSET =
   /^[a-zA-Z0-9_ :;.,"'?!(){}[\]@<>=+*#$&`|~^%/-]+$/;
 
 function sanitizeTransformArgs(value: string): string {
-  if (TRANSFORM_ARGS_CHARSET.test(value)) {
-    return value;
-  }
-
   let sanitized = '';
   for (const char of value) {
-    sanitized += TRANSFORM_ARGS_CHARSET.test(char)
-      ? char
-      : encodeURIComponent(char);
+    // `%` is in the charset, so it must be encoded too — otherwise a
+    // backslash (`a\b.js` → `a%5Cb.js`) collides with a file literally
+    // named `a%5Cb.js`, and firewall / observability treat them as one action.
+    sanitized +=
+      char === '%' || !TRANSFORM_ARGS_CHARSET.test(char)
+        ? encodeURIComponent(char)
+        : char;
   }
   return sanitized;
 }

@@ -178,6 +178,27 @@ describe('getServerActionMetaRoutes', () => {
     ]);
   });
 
+  it('encodes % so a backslash and a literal %5C filename stay distinct', async () => {
+    await writeManifest({
+      node: {
+        '111111111111111111111111111111111111111111': {
+          filename: 'app/a\\b.js',
+          exportedName: 'one',
+        },
+        '222222222222222222222222222222222222222222': {
+          filename: 'app/a%5Cb.js',
+          exportedName: 'two',
+        },
+      },
+    });
+
+    const routes = await getServerActionMetaRoutes(distDir);
+    expect(routes.map((route) => route.transforms?.[0]?.args)).toEqual([
+      'app/a%5Cb.js#one',
+      'app/a%255Cb.js#two',
+    ]);
+  });
+
   it('drops action meta routes first when over the CDN route cap', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const actionRoute = {

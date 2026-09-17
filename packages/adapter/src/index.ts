@@ -21,7 +21,6 @@ import {
   normalizeNextDataRoutes,
   normalizeRewrites,
 } from './routing';
-import { getServerActionMetaRoutes } from './server-actions';
 import { generateToolbarScript } from './toolbar';
 import type { VercelConfig } from './types';
 import { escapeStringRegexp, getImagesConfig } from './utils';
@@ -293,7 +292,6 @@ const myAdapter: NextAdapter = {
       extractRedirects(routing);
     const headers = extractHeaders(routing);
     const onMatchRoutes = extractOnMatchRoutes(routing);
-    const serverActionMetaRoutes = await getServerActionMetaRoutes(distDir);
 
     const dynamicRoutes: RouteWithSrc[] = [];
     let addedNextData404Route = false;
@@ -490,7 +488,7 @@ const myAdapter: NextAdapter = {
 
       ...redirects,
 
-      ...serverActionMetaRoutes,
+      // server actions name meta routes - placeholder for server actions
 
       // middleware route - placeholder for middleware configuration
       ...middlewareRoutes,
